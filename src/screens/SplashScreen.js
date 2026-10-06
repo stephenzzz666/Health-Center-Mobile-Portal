@@ -23,7 +23,6 @@ export default function SplashScreen() {
       <View style={styles.footer}>
         <ActivityIndicator size="large" color="#ffffff" style={styles.spinner} />
         <Text style={styles.loadingText}>Initializing Health Portal...</Text>
-        <Text style={styles.dohTagline}>Official DOH / Local Health Center Electronic System</Text>
       </View>
     </View>
   );

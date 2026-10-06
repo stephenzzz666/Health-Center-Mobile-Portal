@@ -17,6 +17,7 @@ import { supabase } from './supabase';
 
 export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [screen, setScreen] = useState('login');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [role, setRole] = useState('patient');
@@ -35,7 +36,6 @@ export default function App() {
   useEffect(() => {
     async function initializeApp() {
       try {
-        // Check existing Supabase user session
         if (supabase) {
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {
@@ -48,12 +48,10 @@ export default function App() {
           }
         }
 
-        // Fetch data in parallel
         await Promise.all([fetchAppointments(), fetchInfants()]);
       } catch (err) {
         console.log('App initialization error:', err);
       } finally {
-        // Show splash screen for exactly 1 second (1000 ms) before opening login/main page
         setTimeout(() => {
           setIsInitializing(false);
         }, 1000);
@@ -61,20 +59,28 @@ export default function App() {
     }
 
     initializeApp();
-
-    // Listen for Auth State Changes (Logout, Session Expiry, etc.)
-    if (supabase) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (!session) {
-          setScreen('login');
-        }
-      });
-
-      return () => {
-        subscription?.unsubscribe();
-      };
-    }
   }, []);
+
+  // Explicit Logout Handler with 1-Second Splash Screen
+  const handleLogout = async () => {
+    // 1. Show Splash Screen immediately
+    setIsLoggingOut(true);
+
+    // 2. Wait 1 second (1000ms)
+    setTimeout(async () => {
+      try {
+        if (supabase) {
+          await supabase.auth.signOut();
+        }
+      } catch (err) {
+        console.log('Logout error:', err);
+      } finally {
+        setScreen('login');
+        setActiveTab('dashboard');
+        setIsLoggingOut(false);
+      }
+    }, 1000);
+  };
 
   const fetchAppointments = async () => {
     try {
@@ -111,8 +117,8 @@ export default function App() {
     }
   };
 
-  // 1. Show Branded Splash Screen for 1 Second
-  if (isInitializing) {
+  // 1. Show Splash Screen during App Initialization or Logging Out
+  if (isInitializing || isLoggingOut) {
     return <SplashScreen />;
   }
 
@@ -156,7 +162,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <TopHeader role={role} setScreen={setScreen} />
+      <TopHeader role={role} setScreen={setScreen} onLogout={handleLogout} />
 
       <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
         {activeTab === 'dashboard' && (
@@ -170,6 +176,7 @@ export default function App() {
             vaccineNum={vaccineNum}
             prenatalNum={prenatalNum}
             setScreen={setScreen}
+            onLogout={handleLogout}
           />
         )}
 

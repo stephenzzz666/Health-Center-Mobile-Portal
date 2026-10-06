@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
-import { SafeAreaView, ScrollView, View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, StatusBar, StyleSheet } from 'react-native';
+import {
+  SafeAreaView,
+  ScrollView,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  StatusBar,
+  StyleSheet,
+  Platform,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TopHeader from '../components/TopHeader';
 import { supabase } from '../../supabase';
@@ -67,13 +79,37 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
           ))}
         </View>
 
-        <Text style={styles.label}>2. Preferred Date (YYYY-MM-DD)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. 2026-10-12"
-          value={selectedDate}
-          onChangeText={setSelectedDate}
-        />
+        {/* 2. Interactive Calendar Date Picker */}
+        <Text style={styles.label}>2. Preferred Date</Text>
+        {Platform.OS === 'web' ? (
+          <input
+            type="date"
+            value={selectedDate}
+            min={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            style={{
+              width: '100%',
+              backgroundColor: '#ffffff',
+              border: '1px solid #cbd5e1',
+              borderRadius: '8px',
+              padding: '12px',
+              marginBottom: '14px',
+              color: '#0f172a',
+              fontSize: '14px',
+              fontFamily: 'inherit',
+              outline: 'none',
+              cursor: 'pointer',
+              boxSizing: 'border-box',
+            }}
+          />
+        ) : (
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 2026-10-12"
+            value={selectedDate}
+            onChangeText={setSelectedDate}
+          />
+        )}
 
         <Text style={styles.label}>3. Preferred Time Slot</Text>
         <View style={styles.pickerContainer}>
