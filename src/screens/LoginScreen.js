@@ -10,85 +10,133 @@ import {
   StatusBar,
   StyleSheet,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../supabase';
 
-export default function LoginScreen({ onLoginSuccess, onNavigateToSignUp }) {
-  const [activeTab, setActiveTab] = useState('signIn'); // 'signIn' | 'signUp'
-  const [accessLevel, setAccessLevel] = useState('Resident / Parent'); // 'Resident / Parent' | 'Health Worker / Admin'
+export default function LoginScreen({ setName, setRole, setScreen, setActiveTab }) {
+  const [activeTab, setActiveAuthTab] = useState('signIn'); // 'signIn' | 'signUp'
+  const [accessLevel, setAccessLevel] = useState('Resident / Parent');
+  
+  // Form State
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Handle User Sign In
+  const notify = (title, message) => {
+    if (Platform.OS === 'web') {
+      window.alert(`${title}: ${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
+
+  // 1. SIGN IN
   const handleSignIn = async () => {
     if (!email || !password) {
-      const msg = 'Please enter both your email address and password.';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Missing Fields', msg);
+      notify('Missing Fields', 'Please enter both your email address and password.');
       return;
     }
 
     setLoading(true);
     try {
-      if (supabase) {
+      if (supabase && supabase.auth) {
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password: password,
         });
 
         if (error) {
-          if (Platform.OS === 'web') window.alert(`Login Failed: ${error.message}`);
-          else Alert.alert('Login Failed', error.message);
+          notify('Login Failed', error.message);
         } else if (data?.user) {
-          if (onLoginSuccess) onLoginSuccess(data.user, accessLevel);
+          const userMeta = data.user.user_metadata || {};
+          
+          if (setName) setName(userMeta.full_name || email.split('@')[0]);
+          if (setRole) setRole(accessLevel === 'Resident / Parent' ? 'patient' : 'admin');
+          if (setActiveTab) setActiveTab('dashboard');
+          if (setScreen) setScreen('main');
         }
       } else {
-        // Fallback demo mode if Supabase isn't connected
-        if (onLoginSuccess) onLoginSuccess({ email: email }, accessLevel);
+        notify('Config Error', 'Supabase client is not initialized.');
       }
     } catch (err) {
-      const errMsg = err.message || 'An unexpected error occurred during sign in.';
-      if (Platform.OS === 'web') window.alert(errMsg);
-      else Alert.alert('Error', errMsg);
+      notify('Error', err.message || 'An unexpected error occurred during sign in.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle Forgot Password Request
-  const handleForgotPassword = async () => {
-    if (!email) {
-      const msg = 'Please enter your email address in the field above first, then click "Forgot Password?".';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Email Required', msg);
+  // 2. CREATE ACCOUNT (SIGN UP)
+  const handleSignUp = async () => {
+    if (!fullName || !email || !password || !confirmPassword) {
+      notify('Missing Fields', 'Please fill in all required fields.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      notify('Password Error', 'Passwords do not match.');
       return;
     }
 
     setLoading(true);
     try {
-      if (supabase) {
+      if (supabase && supabase.auth) {
+        const selectedRole = accessLevel === 'Resident / Parent' ? 'patient' : 'admin';
+        
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password: password,
+          options: {
+            data: {
+              full_name: fullName.trim(),
+              role: selectedRole,
+              access_level: accessLevel,
+            },
+          },
+        });
+
+        if (error) {
+          notify('Sign Up Failed', error.message);
+        } else {
+          notify('Success', 'Account created successfully! You can now sign in.');
+          setActiveAuthTab('signIn');
+          setPassword('');
+          setConfirmPassword('');
+        }
+      } else {
+        notify('Config Error', 'Supabase client is not initialized.');
+      }
+    } catch (err) {
+      notify('Error', err.message || 'An unexpected error occurred during sign up.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 3. FORGOT PASSWORD
+  const handleForgotPassword = async () => {
+    if (!email) {
+      notify('Email Required', 'Please enter your email address in the field above first.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (supabase && supabase.auth) {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
 
         if (error) {
-          if (Platform.OS === 'web') window.alert(`Error: ${error.message}`);
-          else Alert.alert('Error', error.message);
+          notify('Reset Error', error.message);
         } else {
-          const successMsg = `A password reset link has been sent to ${email}. Please check your inbox.`;
-          if (Platform.OS === 'web') window.alert(successMsg);
-          else Alert.alert('Password Reset Sent', successMsg);
+          notify('Email Sent', `Password reset link sent to ${email}. Check your inbox.`);
         }
-      } else {
-        const demoMsg = `Password reset instructions simulated for ${email}.`;
-        if (Platform.OS === 'web') window.alert(demoMsg);
-        else Alert.alert('Reset Email Sent', demoMsg);
       }
     } catch (err) {
-      const errMsg = err.message || 'Could not send reset password email.';
-      if (Platform.OS === 'web') window.alert(errMsg);
-      else Alert.alert('Error', errMsg);
+      notify('Error', err.message || 'Could not send reset password email.');
     } finally {
       setLoading(false);
     }
@@ -98,26 +146,24 @@ export default function LoginScreen({ onLoginSuccess, onNavigateToSignUp }) {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
 
-      <View style={styles.centerWrapper}>
-        {/* Header Icon & Title */}
+      <ScrollView contentContainerStyle={styles.centerWrapper}>
         <View style={styles.headerBox}>
-          <Text style={styles.logoEmoji}>🏢</Text>
+          <Ionicons name="business-sharp" size={32} color="#15803d" />
           <Text style={styles.headerTitle}>Barangay Visayan Village</Text>
           <Text style={styles.headerSubtitle}>
             Health Center Management Information System
           </Text>
         </View>
 
-        {/* Outer Form Card */}
         <View style={styles.card}>
-          {/* Sign In / Create Account Top Tab Switcher */}
+          {/* Switcher Tabs */}
           <View style={styles.topTabContainer}>
             <TouchableOpacity
               style={[
                 styles.topTabButton,
                 activeTab === 'signIn' && styles.activeTopTabButton,
               ]}
-              onPress={() => setActiveTab('signIn')}
+              onPress={() => setActiveAuthTab('signIn')}
             >
               <Text
                 style={[
@@ -134,10 +180,7 @@ export default function LoginScreen({ onLoginSuccess, onNavigateToSignUp }) {
                 styles.topTabButton,
                 activeTab === 'signUp' && styles.activeTopTabButton,
               ]}
-              onPress={() => {
-                setActiveTab('signUp');
-                if (onNavigateToSignUp) onNavigateToSignUp();
-              }}
+              onPress={() => setActiveAuthTab('signUp')}
             >
               <Text
                 style={[
@@ -201,6 +244,20 @@ export default function LoginScreen({ onLoginSuccess, onNavigateToSignUp }) {
             </TouchableOpacity>
           </View>
 
+          {/* Full Name Input (Create Account Only) */}
+          {activeTab === 'signUp' && (
+            <>
+              <Text style={styles.label}>Full Name *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Juan Dela Cruz"
+                placeholderTextColor="#94a3b8"
+                value={fullName}
+                onChangeText={setFullName}
+              />
+            </>
+          )}
+
           {/* Email Address Input */}
           <Text style={styles.label}>Email Address *</Text>
           <TextInput
@@ -213,7 +270,7 @@ export default function LoginScreen({ onLoginSuccess, onNavigateToSignUp }) {
             onChangeText={setEmail}
           />
 
-          {/* Password Input with Show/Hide Toggle */}
+          {/* Password Input */}
           <Text style={styles.label}>Password *</Text>
           <View style={styles.passwordInputContainer}>
             <TextInput
@@ -236,45 +293,70 @@ export default function LoginScreen({ onLoginSuccess, onNavigateToSignUp }) {
             </TouchableOpacity>
           </View>
 
-          {/* Forgot Password Action Link */}
-          <View style={styles.forgotPasswordRow}>
-            <TouchableOpacity onPress={handleForgotPassword}>
-              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Confirm Password Input (Create Account Only) */}
+          {activeTab === 'signUp' && (
+            <>
+              <Text style={styles.label}>Confirm Password *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="••••••••"
+                placeholderTextColor="#94a3b8"
+                secureTextEntry={!showPassword}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+              />
+            </>
+          )}
 
-          {/* Main Action Button */}
+          {/* Forgot Password Link (Sign In Only) */}
+          {activeTab === 'signIn' && (
+            <View style={styles.forgotPasswordRow}>
+              <TouchableOpacity onPress={handleForgotPassword}>
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Primary Action Button */}
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={handleSignIn}
+            onPress={activeTab === 'signIn' ? handleSignIn : handleSignUp}
             disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
-              <Text style={styles.primaryButtonText}>Access Health Portal</Text>
+              <Text style={styles.primaryButtonText}>
+                {activeTab === 'signIn' ? 'Access Health Portal' : 'Register Account'}
+              </Text>
             )}
           </TouchableOpacity>
 
-          {/* Bottom Sign-Up Link */}
+          {/* Switcher Footer Link */}
           <TouchableOpacity
             style={styles.signUpLinkContainer}
-            onPress={() => {
-              if (onNavigateToSignUp) onNavigateToSignUp();
-            }}
+            onPress={() => setActiveAuthTab(activeTab === 'signIn' ? 'signUp' : 'signIn')}
           >
             <Text style={styles.signUpLinkText}>
-              Don't have an account yet?{' '}
-              <Text style={styles.signUpBoldText}>Sign Up here</Text>
+              {activeTab === 'signIn' ? (
+                <>
+                  Don't have an account yet?{' '}
+                  <Text style={styles.signUpBoldText}>Sign Up here</Text>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <Text style={styles.signUpBoldText}>Sign In here</Text>
+                </>
+              )}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Footer Caption */}
         <Text style={styles.footerCaption}>
           Official DOH / Local Health Center Electronic System
         </Text>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -285,7 +367,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   centerWrapper: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -370,7 +452,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justify: 'center',
+    justifyContent: 'center',
     gap: 6,
     paddingVertical: 10,
     paddingHorizontal: 8,
@@ -409,7 +491,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   passwordInput: {
     flex: 1,
@@ -423,6 +505,7 @@ const styles = StyleSheet.create({
   forgotPasswordRow: {
     alignItems: 'flex-end',
     marginBottom: 18,
+    marginTop: -8,
   },
   forgotPasswordText: {
     fontSize: 12,
@@ -435,6 +518,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     marginBottom: 16,
+    marginTop: 8,
   },
   primaryButtonText: {
     color: '#ffffff',

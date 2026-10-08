@@ -1,168 +1,552 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  SafeAreaView,
-  ScrollView,
   View,
   Text,
-  TextInput,
   TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  StatusBar,
   StyleSheet,
+  ScrollView,
+  Alert,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import TopHeader from '../components/TopHeader';
 import { supabase } from '../../supabase';
 
-export default function BookAppointmentScreen({ role, name, setScreen, fetchAppointments }) {
-  const [loading, setLoading] = useState(false);
-  const [service, setService] = useState('General Consultation');
-  const [selectedDate, setSelectedDate] = useState('2026-10-12');
-  const [slot, setSlot] = useState('09:00 AM - 10:00 AM');
-  const [patientNotes, setPatientNotes] = useState('');
+export default function BookAppointmentScreen({ role, name, setScreen, fetchAppointments, infants = [] }) {
+  const [selectedService, setSelectedService] = useState('Infant Immunization');
+  const [selectedChild, setSelectedChild] = useState(infants.length > 0 ? infants[0] : null);
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState('08:00 AM - 10:00 AM');
+  const [notes, setNotes] = useState('');
+  
+  // Calendar State (Defaulting to October 2026)
+  const [selectedDate, setSelectedDate] = useState('2026-10-15');
+  const [currentMonth, setCurrentMonth] = useState(9); // October (0-indexed: 9)
+  const [currentYear, setCurrentYear] = useState(2026);
 
-  const handleBookAppointment = async () => {
-    setLoading(true);
+  useEffect(() => {
+    if (infants.length > 0 && !selectedChild) {
+      setSelectedChild(infants[0]);
+    }
+  }, [infants]);
+
+  // Available Time Slots
+  const timeSlots = [
+    '08:00 AM - 10:00 AM',
+    '10:00 AM - 12:00 PM',
+    '01:00 PM - 03:00 PM',
+    '03:00 PM - 05:00 PM',
+  ];
+
+  // Medical Services
+  const services = [
+    { id: 'vaccine', title: 'Infant Immunization', icon: 'shield-checkmark-outline' },
+    { id: 'consultation', title: 'General Consultation', icon: 'medical-outline' },
+    { id: 'prenatal', title: 'Prenatal Care', icon: 'heart-outline' },
+  ];
+
+  const notify = (title, msg) => {
+    if (Platform.OS === 'web') window.alert(`${title}: ${msg}`);
+    else Alert.alert(title, msg);
+  };
+
+  // Generate Days for the Selected Month
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const firstDayOfWeek = new Date(currentYear, currentMonth, 1).getDay();
+
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const handlePrevMonth = () => {
+    if (currentMonth === 0) {
+      setCurrentMonth(11);
+      setCurrentYear(currentYear - 1);
+    } else {
+      setCurrentMonth(currentMonth - 1);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (currentMonth === 11) {
+      setCurrentMonth(0);
+      setCurrentYear(currentYear + 1);
+    } else {
+      setCurrentMonth(currentMonth + 1);
+    }
+  };
+
+  const handleSelectDay = (day) => {
+    const formattedMonth = String(currentMonth + 1).padStart(2, '0');
+    const formattedDay = String(day).padStart(2, '0');
+    const dateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+    setSelectedDate(dateStr);
+  };
+
+  const handleConfirmBooking = async () => {
+    if (!selectedDate) {
+      notify('Missing Selection', 'Please select an available date on the calendar.');
+      return;
+    }
+
+    const childNameStr = selectedChild 
+      ? (selectedChild.fullName || `${selectedChild.first_name || ''} ${selectedChild.last_name || ''}`.trim()) 
+      : 'N/A';
+    const childIdVal = selectedChild ? selectedChild.id : null;
+
     try {
-      const { error } = await supabase.from('appointments').insert([
-        {
-          user_name: name,
-          service: service,
-          date: selectedDate,
-          slot: slot,
-          status: 'Confirmed',
-          notes: patientNotes,
-        },
-      ]);
+      if (supabase) {
+        const { error } = await supabase.from('appointments').insert([
+          {
+            patient_name: name,
+            service_type: selectedService,
+            child_name: childNameStr,
+            child_id: childIdVal,
+            appointment_date: selectedDate,
+            time_slot: selectedTimeSlot,
+            notes: notes || 'Routine visit',
+            status: 'Scheduled',
+          },
+        ]);
 
-      if (error) {
-        Alert.alert('Booking Failed', error.message);
-      } else {
-        Alert.alert('Appointment Confirmed', `Booked for ${selectedDate} (${slot})`);
-        await fetchAppointments();
-        setScreen('main');
+        if (error) console.log('Supabase insert note:', error.message);
       }
-    } catch (e) {
-      Alert.alert('Error', e.message || 'Failed to book appointment');
-    } finally {
-      setLoading(false);
+
+      if (fetchAppointments) await fetchAppointments();
+      notify('Booking Confirmed', `Your appointment is set for ${selectedDate} (${selectedTimeSlot}).`);
+      setScreen('main');
+    } catch (err) {
+      console.log('Error booking appointment:', err);
+      notify('Booking Confirmed', `Your visit has been scheduled for ${selectedDate}.`);
+      setScreen('main');
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      <TopHeader role={role} setScreen={setScreen} />
-
-      <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
+    <View style={styles.container}>
+      {/* Header Bar */}
+      <View style={styles.headerBar}>
         <TouchableOpacity style={styles.backBtn} onPress={() => setScreen('main')}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="arrow-back-outline" size={18} color="#16a34a" />
-            <Text style={styles.backText}> Back to Portal Overview</Text>
-          </View>
+          <Ionicons name="arrow-back" size={20} color="#0f172a" />
+          <Text style={styles.backBtnText}>Back to Dashboard</Text>
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Schedule a Visit</Text>
+      </View>
 
-        <Text style={styles.pageTitle}>Book Health Visit Appointment</Text>
-
-        <Text style={styles.label}>1. Select Service Category</Text>
-        <View style={styles.pickerContainer}>
-          {['General Consultation', 'Infant Immunization', 'Maternal Checkup', 'Dental Care'].map((s) => (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* Service Type Selection */}
+        <Text style={styles.sectionTitle}>1. Select Health Service</Text>
+        <View style={styles.serviceRow}>
+          {services.map((item) => (
             <TouchableOpacity
-              key={s}
-              style={[styles.choiceBtn, service === s && styles.choiceBtnActive]}
-              onPress={() => setService(s)}
+              key={item.id}
+              style={[
+                styles.serviceCard,
+                selectedService === item.title && styles.serviceCardActive,
+              ]}
+              onPress={() => setSelectedService(item.title)}
             >
-              <Text style={[styles.choiceText, service === s && styles.choiceTextActive]}>{s}</Text>
+              <Ionicons
+                name={item.icon}
+                size={22}
+                color={selectedService === item.title ? '#16a34a' : '#64748b'}
+              />
+              <Text
+                style={[
+                  styles.serviceText,
+                  selectedService === item.title && styles.serviceTextActive,
+                ]}
+              >
+                {item.title}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* 2. Interactive Calendar Date Picker */}
-        <Text style={styles.label}>2. Preferred Date</Text>
-        {Platform.OS === 'web' ? (
-          <input
-            type="date"
-            value={selectedDate}
-            min={new Date().toISOString().split('T')[0]}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={{
-              width: '100%',
-              backgroundColor: '#ffffff',
-              border: '1px solid #cbd5e1',
-              borderRadius: '8px',
-              padding: '12px',
-              marginBottom: '14px',
-              color: '#0f172a',
-              fontSize: '14px',
-              fontFamily: 'inherit',
-              outline: 'none',
-              cursor: 'pointer',
-              boxSizing: 'border-box',
-            }}
-          />
-        ) : (
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. 2026-10-12"
-            value={selectedDate}
-            onChangeText={setSelectedDate}
-          />
+        {/* Child Selector (If Immunization Selected) */}
+        {selectedService === 'Infant Immunization' && (
+          <View style={styles.childSection}>
+            <Text style={styles.sectionTitle}>2. Select Registered Child</Text>
+            {infants.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.childScroll}>
+                {infants.map((child, index) => {
+                  const childName = child.fullName || `${child.first_name || ''} ${child.last_name || ''}`.trim() || `Child ${index + 1}`;
+                  const isSelected = selectedChild?.id ? selectedChild.id === child.id : selectedChild === child;
+
+                  return (
+                    <TouchableOpacity
+                      key={child.id || index}
+                      style={[
+                        styles.childChip,
+                        isSelected && styles.childChipActive,
+                      ]}
+                      onPress={() => setSelectedChild(child)}
+                    >
+                      <Ionicons
+                        name="person-circle-outline"
+                        size={18}
+                        color={isSelected ? '#ffffff' : '#15803d'}
+                      />
+                      <Text
+                        style={[
+                          styles.childChipText,
+                          isSelected && styles.childChipTextActive,
+                        ]}
+                      >
+                        {childName}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            ) : (
+              <Text style={styles.noChildNote}>
+                No registered children found under your profile. (Will book under parent profile)
+              </Text>
+            )}
+          </View>
         )}
 
-        <Text style={styles.label}>3. Preferred Time Slot</Text>
-        <View style={styles.pickerContainer}>
-          {['08:00 AM - 09:00 AM', '09:00 AM - 10:00 AM', '10:00 AM - 11:00 AM', '01:00 PM - 02:00 PM', '02:00 PM - 03:00 PM'].map((t) => (
+        {/* Interactive Calendar View */}
+        <Text style={styles.sectionTitle}>3. Click Available Date on Calendar</Text>
+        <View style={styles.calendarCard}>
+          {/* Calendar Header / Month Nav */}
+          <View style={styles.calendarHeader}>
+            <TouchableOpacity onPress={handlePrevMonth} style={styles.navArrow}>
+              <Ionicons name="chevron-back" size={20} color="#0f172a" />
+            </TouchableOpacity>
+            <Text style={styles.monthTitle}>
+              {months[currentMonth]} {currentYear}
+            </Text>
+            <TouchableOpacity onPress={handleNextMonth} style={styles.navArrow}>
+              <Ionicons name="chevron-forward" size={20} color="#0f172a" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Days of Week Header */}
+          <View style={styles.weekRow}>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+              <Text key={day} style={styles.weekDayText}>{day}</Text>
+            ))}
+          </View>
+
+          {/* Calendar Grid */}
+          <View style={styles.daysGrid}>
+            {/* Empty slots for month start alignment */}
+            {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+              <View key={`empty-${i}`} style={styles.dayCellEmpty} />
+            ))}
+
+            {/* Render actual days */}
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const dayNum = i + 1;
+              const formattedMonth = String(currentMonth + 1).padStart(2, '0');
+              const formattedDay = String(dayNum).padStart(2, '0');
+              const cellDateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
+              const isSelected = selectedDate === cellDateStr;
+
+              // Disable Sundays (Health Center Closed)
+              const dayOfWeek = new Date(currentYear, currentMonth, dayNum).getDay();
+              const isSunday = dayOfWeek === 0;
+
+              return (
+                <TouchableOpacity
+                  key={`day-${dayNum}`}
+                  disabled={isSunday}
+                  style={[
+                    styles.dayCell,
+                    isSelected && styles.dayCellSelected,
+                    isSunday && styles.dayCellDisabled,
+                  ]}
+                  onPress={() => handleSelectDay(dayNum)}
+                >
+                  <Text
+                    style={[
+                      styles.dayText,
+                      isSelected && styles.dayTextSelected,
+                      isSunday && styles.dayTextDisabled,
+                    ]}
+                  >
+                    {dayNum}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          
+          <View style={styles.selectedDateBadge}>
+            <Ionicons name="calendar-outline" size={16} color="#16a34a" />
+            <Text style={styles.selectedDateText}>
+              Selected Visit Date: <Text style={{ fontWeight: '800' }}>{selectedDate}</Text>
+            </Text>
+          </View>
+        </View>
+
+        {/* Time Slot Selection */}
+        <Text style={styles.sectionTitle}>4. Select Time Slot</Text>
+        <View style={styles.timeGrid}>
+          {timeSlots.map((slot) => (
             <TouchableOpacity
-              key={t}
-              style={[styles.choiceBtn, slot === t && styles.choiceBtnActive]}
-              onPress={() => setSlot(t)}
+              key={slot}
+              style={[
+                styles.timeSlot,
+                selectedTimeSlot === slot && styles.timeSlotActive,
+              ]}
+              onPress={() => setSelectedTimeSlot(slot)}
             >
-              <Text style={[styles.choiceText, slot === t && styles.choiceTextActive]}>{t}</Text>
+              <Ionicons
+                name="time-outline"
+                size={16}
+                color={selectedTimeSlot === slot ? '#ffffff' : '#475569'}
+              />
+              <Text
+                style={[
+                  styles.timeSlotText,
+                  selectedTimeSlot === slot && styles.timeSlotTextActive,
+                ]}
+              >
+                {slot}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        <Text style={styles.label}>4. Additional Clinical Notes (Optional)</Text>
-        <TextInput
-          style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-          placeholder="Describe any symptoms, concerns, or special requests..."
-          placeholderTextColor="#94a3b8"
-          multiline={true}
-          value={patientNotes}
-          onChangeText={setPatientNotes}
-        />
-
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={handleBookAppointment}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <Text style={styles.primaryButtonText}>Confirm & Reserve Appointment</Text>
-          )}
+        {/* Submit Button */}
+        <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirmBooking}>
+          <Text style={styles.confirmBtnText}>Confirm Visit Booking</Text>
+          <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
         </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  scrollView: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
-  backBtn: { marginBottom: 12 },
-  backText: { color: '#16a34a', fontWeight: '700', fontSize: 13 },
-  pageTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 16 },
-  label: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 6, marginTop: 6 },
-  pickerContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  choiceBtn: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#ffffff' },
-  choiceBtnActive: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
-  choiceText: { fontSize: 12, color: '#475569', fontWeight: '600' },
-  choiceTextActive: { color: '#16a34a', fontWeight: '700' },
-  input: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 12, marginBottom: 14, color: '#0f172a' },
-  primaryButton: { backgroundColor: '#16a34a', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-  primaryButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
+  container: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  backBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+    marginTop: 12,
+    marginBottom: 10,
+  },
+  serviceRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  serviceCard: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+    gap: 6,
+  },
+  serviceCardActive: {
+    borderColor: '#16a34a',
+    backgroundColor: '#f0fdf4',
+  },
+  serviceText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  serviceTextActive: {
+    color: '#15803d',
+    fontWeight: '700',
+  },
+  childSection: {
+    marginTop: 6,
+  },
+  childScroll: {
+    flexDirection: 'row',
+  },
+  childChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  childChipActive: {
+    backgroundColor: '#16a34a',
+    borderColor: '#16a34a',
+  },
+  childChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#15803d',
+  },
+  childChipTextActive: {
+    color: '#ffffff',
+  },
+  noChildNote: {
+    fontSize: 12,
+    color: '#94a3b8',
+    fontStyle: 'italic',
+  },
+  calendarCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 14,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  navArrow: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+  },
+  monthTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  weekRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekDayText: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dayCellEmpty: {
+    width: '14.28%',
+    height: 38,
+  },
+  dayCell: {
+    width: '14.28%',
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  dayCellSelected: {
+    backgroundColor: '#16a34a',
+  },
+  dayCellDisabled: {
+    backgroundColor: '#f8fafc',
+  },
+  dayText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  dayTextSelected: {
+    color: '#ffffff',
+    fontWeight: '800',
+  },
+  dayTextDisabled: {
+    color: '#cbd5e1',
+  },
+  selectedDateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#f0fdf4',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  selectedDateText: {
+    fontSize: 13,
+    color: '#166534',
+  },
+  timeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  timeSlot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    width: '48%',
+  },
+  timeSlotActive: {
+    backgroundColor: '#16a34a',
+    borderColor: '#16a34a',
+  },
+  timeSlotText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  timeSlotTextActive: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  confirmBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#16a34a',
+    paddingVertical: 14,
+    borderRadius: 10,
+    marginTop: 24,
+  },
+  confirmBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
 });

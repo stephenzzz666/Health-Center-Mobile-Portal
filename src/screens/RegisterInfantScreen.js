@@ -18,42 +18,59 @@ import { supabase } from '../../supabase';
 
 export default function RegisterInfantScreen({ role, name, setScreen, fetchInfants }) {
   const [loading, setLoading] = useState(false);
-  const [babyName, setBabyName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [dob, setDob] = useState('2026-03-12');
   const [gender, setGender] = useState('Male');
-  const [guardianName, setGuardianName] = useState('');
-  const [contact, setContact] = useState('');
+  const [motherName, setMotherName] = useState('');
+  const [contactNum, setContactNum] = useState('');
   const [address, setAddress] = useState('');
 
+  const notify = (title, message) => {
+    if (Platform.OS === 'web') {
+      window.alert(`${title}: ${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
+
   const handleRegisterInfant = async () => {
-    if (!babyName || !guardianName) {
-      Alert.alert('Validation Error', 'Please fill in required fields (Baby Name and Guardian Name).');
+    if (!firstName.trim() || !motherName.trim()) {
+      notify('Validation Error', 'Please fill in required fields (Child First Name and Parent/Guardian Name).');
       return;
     }
 
     setLoading(true);
     try {
+      if (!supabase) {
+        throw new Error('Supabase client is not connected.');
+      }
+
+      // Maps fields matching your database/App.js schema safely
       const { error } = await supabase.from('infants').insert([
         {
-          name: babyName,
-          dob: dob,
+          first_name: firstName.trim(),
+          last_name: lastName.trim() || 'N/A',
+          birth_date: dob,
           gender: gender,
-          guardian_name: guardianName,
-          contact: contact,
-          address: address,
-          registered_by: name,
+          mother_name: motherName.trim(),
+          contact_num: contactNum.trim() || 'N/A',
+          address: address.trim() || 'N/A',
+          chr_number: `CHR-2026-${Math.floor(1000 + Math.random() * 9000)}`,
         },
       ]);
 
       if (error) {
-        Alert.alert('Registration Failed', error.message);
+        console.error('Supabase Insert Error:', error);
+        notify('Registration Failed', error.message);
       } else {
-        Alert.alert('Registration Successful', `${babyName} has been registered.`);
+        notify('Registration Successful', `${firstName} has been registered.`);
         if (fetchInfants) await fetchInfants();
         setScreen('main');
       }
     } catch (e) {
-      Alert.alert('Error', e.message || 'Failed to register infant');
+      console.error('Registration catch error:', e);
+      notify('Error', e.message || 'Failed to register child.');
     } finally {
       setLoading(false);
     }
@@ -66,7 +83,11 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
 
       <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
         {/* Back Button */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => setScreen('main')}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => setScreen('main')}
+          activeOpacity={0.7}
+        >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Ionicons name="arrow-back-outline" size={18} color="#16a34a" />
             <Text style={styles.backText}> Back to Portal Overview</Text>
@@ -75,18 +96,28 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
 
         <Text style={styles.pageTitle}>Register Child Profile</Text>
 
-        {/* Child Full Name */}
-        <Text style={styles.label}>1. Child's Full Name</Text>
+        {/* Child First Name */}
+        <Text style={styles.label}>1. Child's First Name *</Text>
         <TextInput
           style={styles.input}
-          placeholder="e.g. Baby Ethan Dela Cruz"
+          placeholder="e.g. Ethan"
           placeholderTextColor="#94a3b8"
-          value={babyName}
-          onChangeText={setBabyName}
+          value={firstName}
+          onChangeText={setFirstName}
+        />
+
+        {/* Child Last Name */}
+        <Text style={styles.label}>Child's Last Name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="e.g. Dela Cruz"
+          placeholderTextColor="#94a3b8"
+          value={lastName}
+          onChangeText={setLastName}
         />
 
         {/* Date of Birth */}
-        <Text style={styles.label}>2. Date of Birth</Text>
+        <Text style={styles.label}>2. Date of Birth *</Text>
         {Platform.OS === 'web' ? (
           <input
             type="date"
@@ -111,6 +142,7 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
           <TextInput
             style={styles.input}
             placeholder="YYYY-MM-DD"
+            placeholderTextColor="#94a3b8"
             value={dob}
             onChangeText={setDob}
           />
@@ -124,6 +156,7 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
               key={g}
               style={[styles.choiceBtn, gender === g && styles.choiceBtnActive]}
               onPress={() => setGender(g)}
+              activeOpacity={0.8}
             >
               <Text style={[styles.choiceText, gender === g && styles.choiceTextActive]}>{g}</Text>
             </TouchableOpacity>
@@ -131,13 +164,13 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
         </View>
 
         {/* Guardian Information */}
-        <Text style={styles.label}>4. Parent / Guardian Full Name</Text>
+        <Text style={styles.label}>4. Parent / Guardian Full Name *</Text>
         <TextInput
           style={styles.input}
           placeholder="e.g. Maria Dela Cruz"
           placeholderTextColor="#94a3b8"
-          value={guardianName}
-          onChangeText={setGuardianName}
+          value={motherName}
+          onChangeText={setMotherName}
         />
 
         <Text style={styles.label}>5. Contact Number</Text>
@@ -146,8 +179,8 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
           placeholder="e.g. 09171234567"
           placeholderTextColor="#94a3b8"
           keyboardType="phone-pad"
-          value={contact}
-          onChangeText={setContact}
+          value={contactNum}
+          onChangeText={setContactNum}
         />
 
         <Text style={styles.label}>6. Residential Address</Text>
@@ -159,10 +192,12 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
           onChangeText={setAddress}
         />
 
+        {/* Save Button */}
         <TouchableOpacity
-          style={styles.primaryButton}
+          style={[styles.primaryButton, loading && { opacity: 0.7 }]}
           onPress={handleRegisterInfant}
           disabled={loading}
+          activeOpacity={0.8}
         >
           {loading ? (
             <ActivityIndicator color="#ffffff" />
@@ -178,16 +213,16 @@ export default function RegisterInfantScreen({ role, name, setScreen, fetchInfan
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   scrollView: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
-  backBtn: { marginBottom: 12 },
+  backBtn: { marginBottom: 12, paddingVertical: 4 },
   backText: { color: '#16a34a', fontWeight: '700', fontSize: 13 },
   pageTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 16 },
-  label: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 6, marginTop: 6 },
-  pickerContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  label: { fontSize: 12, fontWeight: '700', color: '#334155', marginBottom: 6, marginTop: 4 },
+  pickerContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   choiceBtn: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 8, backgroundColor: '#ffffff' },
   choiceBtnActive: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
   choiceText: { fontSize: 12, color: '#475569', fontWeight: '600' },
   choiceTextActive: { color: '#16a34a', fontWeight: '700' },
   input: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 8, padding: 12, marginBottom: 14, color: '#0f172a' },
-  primaryButton: { backgroundColor: '#16a34a', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
+  primaryButton: { backgroundColor: '#16a34a', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 12, cursor: 'pointer' },
   primaryButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
 });

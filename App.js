@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, ScrollView, StatusBar, StyleSheet } from 'react-native';
+import { SafeAreaView, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 
 import TopHeader from './src/components/TopHeader';
 import BottomNavBar from './src/components/BottomNavBar';
 
-import SplashScreen from './src/screens/SplashScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import DashboardTab from './src/screens/DashboardTab';
 import QueueScreen from './src/screens/QueueScreen';
@@ -16,8 +15,6 @@ import RegisterInfantScreen from './src/screens/RegisterInfantScreen';
 import { supabase } from './supabase';
 
 export default function App() {
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [screen, setScreen] = useState('login');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [role, setRole] = useState('patient');
@@ -51,35 +48,24 @@ export default function App() {
         await Promise.all([fetchAppointments(), fetchInfants()]);
       } catch (err) {
         console.log('App initialization error:', err);
-      } finally {
-        setTimeout(() => {
-          setIsInitializing(false);
-        }, 1000);
       }
     }
 
     initializeApp();
   }, []);
 
-  // Explicit Logout Handler with 1-Second Splash Screen
+  // Immediate Logout Handler (No Splash Screen Delay)
   const handleLogout = async () => {
-    // 1. Show Splash Screen immediately
-    setIsLoggingOut(true);
-
-    // 2. Wait 1 second (1000ms)
-    setTimeout(async () => {
-      try {
-        if (supabase) {
-          await supabase.auth.signOut();
-        }
-      } catch (err) {
-        console.log('Logout error:', err);
-      } finally {
-        setScreen('login');
-        setActiveTab('dashboard');
-        setIsLoggingOut(false);
+    try {
+      if (supabase) {
+        await supabase.auth.signOut();
       }
-    }, 1000);
+    } catch (err) {
+      console.log('Logout error:', err);
+    } finally {
+      setScreen('login');
+      setActiveTab('dashboard');
+    }
   };
 
   const fetchAppointments = async () => {
@@ -101,7 +87,7 @@ export default function App() {
       else if (data) {
         const formattedInfants = data.map((item) => ({
           ...item,
-          fullName: `${item.first_name} ${item.middle_name ? item.middle_name[0] + '.' : ''} ${item.last_name}`,
+          fullName: `${item.first_name || ''} ${item.middle_name ? item.middle_name[0] + '.' : ''} ${item.last_name || ''}`.trim(),
           chrNumber: item.chr_number || `CHR-2026-${Math.floor(1000 + Math.random() * 9000)}`,
           birthDate: item.birth_date,
           motherName: item.mother_name,
@@ -117,12 +103,7 @@ export default function App() {
     }
   };
 
-  // 1. Show Splash Screen during App Initialization or Logging Out
-  if (isInitializing || isLoggingOut) {
-    return <SplashScreen />;
-  }
-
-  // 2. Auth / Login Screen
+  // 1. Auth / Login Screen
   if (screen === 'login') {
     return (
       <AuthScreen
@@ -136,12 +117,13 @@ export default function App() {
     );
   }
 
-  // 3. Sub-screens
+  // 2. Sub-screens
   if (screen === 'book_appointment') {
     return (
       <BookAppointmentScreen
         role={role}
         name={name}
+        infants={infants}
         setScreen={setScreen}
         fetchAppointments={fetchAppointments}
       />
@@ -158,38 +140,42 @@ export default function App() {
     );
   }
 
-  // 4. Main Tab Layout
+  // 3. Main Tab Layout
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
       <TopHeader role={role} setScreen={setScreen} onLogout={handleLogout} />
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
+      <View style={styles.mainContent}>
         {activeTab === 'dashboard' && (
-          <DashboardTab
-            name={name}
-            role={role}
-            myToken={myToken}
-            appointments={appointments}
-            infants={infants}
-            consultNum={consultNum}
-            vaccineNum={vaccineNum}
-            prenatalNum={prenatalNum}
-            setScreen={setScreen}
-            onLogout={handleLogout}
-          />
+          <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
+            <DashboardTab
+              name={name}
+              role={role}
+              myToken={myToken}
+              appointments={appointments}
+              infants={infants}
+              consultNum={consultNum}
+              vaccineNum={vaccineNum}
+              prenatalNum={prenatalNum}
+              setScreen={setScreen}
+              onLogout={handleLogout}
+            />
+          </ScrollView>
         )}
 
         {activeTab === 'queue' && (
-          <QueueScreen
-            role={role}
-            consultNum={consultNum}
-            setConsultNum={setConsultNum}
-            vaccineNum={vaccineNum}
-            setVaccineNum={setVaccineNum}
-            prenatalNum={prenatalNum}
-            setPrenatalNum={setPrenatalNum}
-          />
+          <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
+            <QueueScreen
+              role={role}
+              consultNum={consultNum}
+              setConsultNum={setConsultNum}
+              vaccineNum={vaccineNum}
+              setVaccineNum={setVaccineNum}
+              prenatalNum={prenatalNum}
+              setPrenatalNum={setPrenatalNum}
+            />
+          </ScrollView>
         )}
 
         {activeTab === 'children' && (
@@ -205,14 +191,17 @@ export default function App() {
         )}
 
         {activeTab === 'appointments' && (
-          <AppointmentsTab
-            appointments={appointments}
-            setScreen={setScreen}
-          />
+          <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
+            <AppointmentsTab
+              appointments={appointments}
+              setScreen={setScreen}
+            />
+          </ScrollView>
         )}
-      </ScrollView>
+      </View>
 
       <BottomNavBar
+        role={role}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         setScreen={setScreen}
@@ -223,5 +212,6 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
+  mainContent: { flex: 1 },
   scrollView: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
 });
