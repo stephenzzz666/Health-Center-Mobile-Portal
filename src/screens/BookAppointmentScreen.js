@@ -5,21 +5,34 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
   Platform,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../supabase';
+import * as Notifications from 'expo-notifications';
+import { supabase as defaultSupabase } from '../../supabase';
 
-export default function BookAppointmentScreen({ role, name, setScreen, fetchAppointments, infants = [] }) {
+export default function BookAppointmentScreen({
+  supabase = defaultSupabase,
+  role,
+  name,
+  setScreen,
+  fetchAppointments,
+  infants = [],
+}) {
   const [selectedService, setSelectedService] = useState('Infant Immunization');
   const [selectedChild, setSelectedChild] = useState(infants.length > 0 ? infants[0] : null);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState('08:00 AM - 10:00 AM');
   const [notes, setNotes] = useState('');
   
+  // Toast Notification State
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastVisible, setToastVisible] = useState(false);
+  const fadeAnim = useState(new Animated.Value(0))[0];
+
   // Calendar State (Defaulting to October 2026)
   const [selectedDate, setSelectedDate] = useState('2026-10-15');
-  const [currentMonth, setCurrentMonth] = useState(9); // October (0-indexed: 9)
+  const [currentMonth, setCurrentMonth] = useState(9);
   const [currentYear, setCurrentYear] = useState(2026);
 
   useEffect(() => {
@@ -28,7 +41,26 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
     }
   }, [infants]);
 
-  // Available Time Slots
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setToastVisible(true);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+
+    setTimeout(() => {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setToastVisible(false);
+      });
+    }, 2500);
+  };
+
   const timeSlots = [
     '08:00 AM - 10:00 AM',
     '10:00 AM - 12:00 PM',
@@ -36,19 +68,29 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
     '03:00 PM - 05:00 PM',
   ];
 
-  // Medical Services
   const services = [
     { id: 'vaccine', title: 'Infant Immunization', icon: 'shield-checkmark-outline' },
     { id: 'consultation', title: 'General Consultation', icon: 'medical-outline' },
     { id: 'prenatal', title: 'Prenatal Care', icon: 'heart-outline' },
   ];
 
-  const notify = (title, msg) => {
-    if (Platform.OS === 'web') window.alert(`${title}: ${msg}`);
-    else Alert.alert(title, msg);
+  const sendBookingNotification = async (dateStr, slotStr) => {
+    try {
+      if (Platform.OS !== 'web') {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '📅 Appointment Booking Confirmed!',
+            body: `Your ${selectedService} visit is set for ${dateStr} at ${slotStr}.`,
+            sound: 'default',
+          },
+          trigger: null,
+        });
+      }
+    } catch (err) {
+      console.log('Push notification error:', err);
+    }
   };
 
-  // Generate Days for the Selected Month
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const firstDayOfWeek = new Date(currentYear, currentMonth, 1).getDay();
 
@@ -83,10 +125,7 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
   };
 
   const handleConfirmBooking = async () => {
-    if (!selectedDate) {
-      notify('Missing Selection', 'Please select an available date on the calendar.');
-      return;
-    }
+    if (!selectedDate) return;
 
     const childNameStr = selectedChild 
       ? (selectedChild.fullName || `${selectedChild.first_name || ''} ${selectedChild.last_name || ''}`.trim()) 
@@ -97,8 +136,8 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
       if (supabase) {
         const { error } = await supabase.from('appointments').insert([
           {
-            patient_name: name,
-            service_type: selectedService,
+            user_name: name || 'Resident Patient',
+            service: selectedService,
             child_name: childNameStr,
             child_id: childIdVal,
             appointment_date: selectedDate,
@@ -112,18 +151,31 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
       }
 
       if (fetchAppointments) await fetchAppointments();
-      notify('Booking Confirmed', `Your appointment is set for ${selectedDate} (${selectedTimeSlot}).`);
-      setScreen('main');
+      
+      showToast(`Appointment submitted successfully for ${selectedDate}!`);
+      await sendBookingNotification(selectedDate, selectedTimeSlot);
+
+      setTimeout(() => {
+        setScreen('main');
+      }, 1500);
     } catch (err) {
       console.log('Error booking appointment:', err);
-      notify('Booking Confirmed', `Your visit has been scheduled for ${selectedDate}.`);
-      setScreen('main');
+      showToast(`Appointment submitted for ${selectedDate}!`);
+      setTimeout(() => {
+        setScreen('main');
+      }, 1500);
     }
   };
 
   return (
     <View style={styles.container}>
-      {/* Header Bar */}
+      {toastVisible && (
+        <Animated.View style={[styles.toastContainer, { opacity: fadeAnim }]}>
+          <Ionicons name="checkmark-circle-outline" size={20} color="#ffffff" />
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
+      )}
+
       <View style={styles.headerBar}>
         <TouchableOpacity style={styles.backBtn} onPress={() => setScreen('main')}>
           <Ionicons name="arrow-back" size={20} color="#0f172a" />
@@ -133,7 +185,6 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Service Type Selection */}
         <Text style={styles.sectionTitle}>1. Select Health Service</Text>
         <View style={styles.serviceRow}>
           {services.map((item) => (
@@ -162,7 +213,6 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
           ))}
         </View>
 
-        {/* Child Selector (If Immunization Selected) */}
         {selectedService === 'Infant Immunization' && (
           <View style={styles.childSection}>
             <Text style={styles.sectionTitle}>2. Select Registered Child</Text>
@@ -206,10 +256,8 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
           </View>
         )}
 
-        {/* Interactive Calendar View */}
         <Text style={styles.sectionTitle}>3. Click Available Date on Calendar</Text>
         <View style={styles.calendarCard}>
-          {/* Calendar Header / Month Nav */}
           <View style={styles.calendarHeader}>
             <TouchableOpacity onPress={handlePrevMonth} style={styles.navArrow}>
               <Ionicons name="chevron-back" size={20} color="#0f172a" />
@@ -222,29 +270,23 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
             </TouchableOpacity>
           </View>
 
-          {/* Days of Week Header */}
           <View style={styles.weekRow}>
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
               <Text key={day} style={styles.weekDayText}>{day}</Text>
             ))}
           </View>
 
-          {/* Calendar Grid */}
           <View style={styles.daysGrid}>
-            {/* Empty slots for month start alignment */}
             {Array.from({ length: firstDayOfWeek }).map((_, i) => (
               <View key={`empty-${i}`} style={styles.dayCellEmpty} />
             ))}
 
-            {/* Render actual days */}
             {Array.from({ length: daysInMonth }).map((_, i) => {
               const dayNum = i + 1;
               const formattedMonth = String(currentMonth + 1).padStart(2, '0');
               const formattedDay = String(dayNum).padStart(2, '0');
               const cellDateStr = `${currentYear}-${formattedMonth}-${formattedDay}`;
               const isSelected = selectedDate === cellDateStr;
-
-              // Disable Sundays (Health Center Closed)
               const dayOfWeek = new Date(currentYear, currentMonth, dayNum).getDay();
               const isSunday = dayOfWeek === 0;
 
@@ -281,7 +323,6 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
           </View>
         </View>
 
-        {/* Time Slot Selection */}
         <Text style={styles.sectionTitle}>4. Select Time Slot</Text>
         <View style={styles.timeGrid}>
           {timeSlots.map((slot) => (
@@ -310,7 +351,6 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
           ))}
         </View>
 
-        {/* Submit Button */}
         <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirmBooking}>
           <Text style={styles.confirmBtnText}>Confirm Visit Booking</Text>
           <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
@@ -321,10 +361,27 @@ export default function BookAppointmentScreen({ role, name, setScreen, fetchAppo
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  toastContainer: {
+    position: 'absolute',
+    top: 14,
+    left: 20,
+    right: 20,
+    backgroundColor: '#15803d',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
   },
+  toastText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
   headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -335,36 +392,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#e2e8f0',
   },
-  backBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  backBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0f172a',
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#334155',
-    marginTop: 12,
-    marginBottom: 10,
-  },
-  serviceRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  backBtnText: { fontSize: 14, fontWeight: '600', color: '#0f172a' },
+  headerTitle: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
+  scrollContent: { padding: 16, paddingBottom: 40 },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginTop: 12, marginBottom: 10 },
+  serviceRow: { flexDirection: 'row', gap: 10 },
   serviceCard: {
     flex: 1,
     backgroundColor: '#ffffff',
@@ -375,26 +408,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  serviceCardActive: {
-    borderColor: '#16a34a',
-    backgroundColor: '#f0fdf4',
-  },
-  serviceText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-    textAlign: 'center',
-  },
-  serviceTextActive: {
-    color: '#15803d',
-    fontWeight: '700',
-  },
-  childSection: {
-    marginTop: 6,
-  },
-  childScroll: {
-    flexDirection: 'row',
-  },
+  serviceCardActive: { borderColor: '#16a34a', backgroundColor: '#f0fdf4' },
+  serviceText: { fontSize: 11, fontWeight: '600', color: '#64748b', textAlign: 'center' },
+  serviceTextActive: { color: '#15803d', fontWeight: '700' },
+  childSection: { marginTop: 6 },
+  childScroll: { flexDirection: 'row' },
   childChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -407,23 +425,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginRight: 8,
   },
-  childChipActive: {
-    backgroundColor: '#16a34a',
-    borderColor: '#16a34a',
-  },
-  childChipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#15803d',
-  },
-  childChipTextActive: {
-    color: '#ffffff',
-  },
-  noChildNote: {
-    fontSize: 12,
-    color: '#94a3b8',
-    fontStyle: 'italic',
-  },
+  childChipActive: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
+  childChipText: { fontSize: 13, fontWeight: '600', color: '#15803d' },
+  childChipTextActive: { color: '#ffffff' },
+  noChildNote: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic' },
   calendarCard: {
     backgroundColor: '#ffffff',
     borderRadius: 12,
@@ -437,60 +442,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  navArrow: {
-    padding: 6,
-    borderRadius: 6,
-    backgroundColor: '#f1f5f9',
-  },
-  monthTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  weekRow: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  weekDayText: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  daysGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  dayCellEmpty: {
-    width: '14.28%',
-    height: 38,
-  },
-  dayCell: {
-    width: '14.28%',
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  dayCellSelected: {
-    backgroundColor: '#16a34a',
-  },
-  dayCellDisabled: {
-    backgroundColor: '#f8fafc',
-  },
-  dayText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1e293b',
-  },
-  dayTextSelected: {
-    color: '#ffffff',
-    fontWeight: '800',
-  },
-  dayTextDisabled: {
-    color: '#cbd5e1',
-  },
+  navArrow: { padding: 6, borderRadius: 6, backgroundColor: '#f1f5f9' },
+  monthTitle: { fontSize: 15, fontWeight: '800', color: '#0f172a' },
+  weekRow: { flexDirection: 'row', marginBottom: 8 },
+  weekDayText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '700', color: '#64748b' },
+  daysGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  dayCellEmpty: { width: '14.28%', height: 38 },
+  dayCell: { width: '14.28%', height: 38, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+  dayCellSelected: { backgroundColor: '#16a34a' },
+  dayCellDisabled: { backgroundColor: '#f8fafc' },
+  dayText: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
+  dayTextSelected: { color: '#ffffff', fontWeight: '800' },
+  dayTextDisabled: { color: '#cbd5e1' },
   selectedDateBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -500,15 +463,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 12,
   },
-  selectedDateText: {
-    fontSize: 13,
-    color: '#166534',
-  },
-  timeGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+  selectedDateText: { fontSize: 13, color: '#166534' },
+  timeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   timeSlot: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -521,19 +477,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     width: '48%',
   },
-  timeSlotActive: {
-    backgroundColor: '#16a34a',
-    borderColor: '#16a34a',
-  },
-  timeSlotText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  timeSlotTextActive: {
-    color: '#ffffff',
-    fontWeight: '700',
-  },
+  timeSlotActive: { backgroundColor: '#16a34a', borderColor: '#16a34a' },
+  timeSlotText: { fontSize: 12, fontWeight: '600', color: '#475569' },
+  timeSlotTextActive: { color: '#ffffff', fontWeight: '700' },
   confirmBtn: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -544,9 +490,5 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 24,
   },
-  confirmBtnText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
+  confirmBtnText: { color: '#ffffff', fontSize: 15, fontWeight: '800' },
 });

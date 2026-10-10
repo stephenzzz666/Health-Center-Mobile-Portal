@@ -35,7 +35,7 @@ export default function LoginScreen({ setName, setRole, setScreen, setActiveTab 
     }
   };
 
-  // 1. SIGN IN
+  // 1. SIGN IN (Updated with explicit role separation)
   const handleSignIn = async () => {
     if (!email || !password) {
       notify('Missing Fields', 'Please enter both your email address and password.');
@@ -54,9 +54,21 @@ export default function LoginScreen({ setName, setRole, setScreen, setActiveTab 
           notify('Login Failed', error.message);
         } else if (data?.user) {
           const userMeta = data.user.user_metadata || {};
+          const userName = userMeta.full_name || fullName || email.split('@')[0];
+          const lowerName = userName.toLowerCase();
+          const lowerEmail = email.toLowerCase();
+
+          // Explicit Admin Check: Match Francis or explicit admin metadata/toggles
+          const isFrancisAdmin = lowerName.includes('francis') || lowerEmail.includes('francis');
+          const isExplicitAdminMeta = userMeta.role === 'admin' || userMeta.role === 'staff';
           
-          if (setName) setName(userMeta.full_name || email.split('@')[0]);
-          if (setRole) setRole(accessLevel === 'Resident / Parent' ? 'patient' : 'admin');
+          let finalRole = 'patient';
+          if (isFrancisAdmin || isExplicitAdminMeta || accessLevel === 'Health Worker / Admin') {
+            finalRole = 'admin';
+          }
+
+          if (setName) setName(userName);
+          if (setRole) setRole(finalRole);
           if (setActiveTab) setActiveTab('dashboard');
           if (setScreen) setScreen('main');
         }
@@ -376,10 +388,6 @@ const styles = StyleSheet.create({
   headerBox: {
     alignItems: 'center',
     marginBottom: 20,
-  },
-  logoEmoji: {
-    fontSize: 42,
-    marginBottom: 6,
   },
   headerTitle: {
     fontSize: 22,

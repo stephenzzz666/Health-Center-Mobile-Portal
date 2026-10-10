@@ -18,7 +18,7 @@ export default function App() {
   const [screen, setScreen] = useState('login');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [role, setRole] = useState('patient');
-  const [name, setName] = useState('Stephen Cabrido');
+  const [name, setName] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [consultNum, setConsultNum] = useState(14);
@@ -31,18 +31,41 @@ export default function App() {
   const [infantIndex, setInfantIndex] = useState(0);
 
   useEffect(() => {
+    let apptChannel;
+
     async function initializeApp() {
       try {
         if (supabase) {
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {
             const userMetaData = session.user.user_metadata || {};
-            setName(userMetaData.full_name || session.user.email.split('@')[0]);
-            setRole(userMetaData.role || 'patient');
+            const userFullName = userMetaData.full_name || session.user.email?.split('@')[0] || 'User';
+            const lowerName = userFullName.toLowerCase();
+            const lowerEmail = (session.user.email || '').toLowerCase();
+
+            // Francis gets Admin, Stephen/others get Resident/Patient
+            const isFrancisAdmin = lowerName.includes('francis') || lowerEmail.includes('francis');
+            const isExplicitAdmin = userMetaData.role === 'admin' || userMetaData.role === 'staff';
+            const determinedRole = (isFrancisAdmin || isExplicitAdmin) ? 'admin' : 'patient';
+
+            setName(userFullName);
+            setRole(determinedRole);
             setScreen('main');
           } else {
             setScreen('login');
           }
+
+          // Realtime Subscription for live sync across views
+          apptChannel = supabase
+            .channel('app_appointments_realtime')
+            .on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'appointments' },
+              () => {
+                fetchAppointments();
+              }
+            )
+            .subscribe();
         }
 
         await Promise.all([fetchAppointments(), fetchInfants()]);
@@ -52,9 +75,15 @@ export default function App() {
     }
 
     initializeApp();
+
+    return () => {
+      if (supabase && apptChannel) {
+        supabase.removeChannel(apptChannel);
+      }
+    };
   }, []);
 
-  // Immediate Logout Handler (No Splash Screen Delay)
+  // Logout Handler
   const handleLogout = async () => {
     try {
       if (supabase) {
@@ -63,6 +92,8 @@ export default function App() {
     } catch (err) {
       console.log('Logout error:', err);
     } finally {
+      setName('');
+      setRole('patient');
       setScreen('login');
       setActiveTab('dashboard');
     }
@@ -71,11 +102,19 @@ export default function App() {
   const fetchAppointments = async () => {
     try {
       if (!supabase) return;
-      const { data, error } = await supabase.from('appointments').select('*').order('created_at', { ascending: false });
-      if (error) console.log('Appointments fetch error:', error.message);
-      else if (data) setAppointments(data);
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        const { data: fallbackData } = await supabase.from('appointments').select('*');
+        if (fallbackData) setAppointments(fallbackData);
+      } else if (data) {
+        setAppointments([...data]);
+      }
     } catch (e) {
-      console.log('Appointments catch error:', e);
+      console.log('Appointments fetch error:', e);
     }
   };
 
@@ -121,6 +160,7 @@ export default function App() {
   if (screen === 'book_appointment') {
     return (
       <BookAppointmentScreen
+        supabase={supabase}
         role={role}
         name={name}
         infants={infants}
@@ -140,6 +180,8 @@ export default function App() {
     );
   }
 
+  const isAdminUser = role === 'admin' || role === 'staff';
+
   // 3. Main Tab Layout
   return (
     <SafeAreaView style={styles.container}>
@@ -150,14 +192,22 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
             <DashboardTab
-              name={name}
+              userName={name}
+              userRole={role}
               role={role}
+              isAdmin={isAdminUser}
               myToken={myToken}
-              appointments={appointments}
-              infants={infants}
+              appointmentsCount={appointments.length}
+              childrenCount={infants.length}
               consultNum={consultNum}
               vaccineNum={vaccineNum}
               prenatalNum={prenatalNum}
+              onNavigate={(dest) => {
+                if (dest === 'BookVisit') setScreen('book_appointment');
+                else if (dest === 'NewChild') setScreen('register_infant');
+                else if (dest === 'LiveQueue') setActiveTab('queue');
+                else if (dest === 'Visits') setActiveTab('appointments');
+              }}
               setScreen={setScreen}
               onLogout={handleLogout}
             />
@@ -168,12 +218,15 @@ export default function App() {
           <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
             <QueueScreen
               role={role}
+              userRole={role}
+              isAdmin={isAdminUser}
               consultNum={consultNum}
               setConsultNum={setConsultNum}
               vaccineNum={vaccineNum}
               setVaccineNum={setVaccineNum}
               prenatalNum={prenatalNum}
               setPrenatalNum={setPrenatalNum}
+              myToken={myToken}
             />
           </ScrollView>
         )}
@@ -191,12 +244,16 @@ export default function App() {
         )}
 
         {activeTab === 'appointments' && (
-          <ScrollView style={styles.scrollView} contentContainerStyle={{ paddingBottom: 90 }}>
+          <View style={{ flex: 1 }}>
             <AppointmentsTab
+              role={role}
+              userRole={role}
+              isAdmin={isAdminUser}
               appointments={appointments}
+              onBookVisit={() => setScreen('book_appointment')}
               setScreen={setScreen}
             />
-          </ScrollView>
+          </View>
         )}
       </View>
 
